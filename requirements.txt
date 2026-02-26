@@ -2,12 +2,12 @@ pandas
 numpy
 matplotlib
 seaborn
-plotly
+plotly==5.15.0
 scikit-learn
 xgboost
 imbalanced-learn
 shap
-streamlit==1.24.0
+streamlit==1.28.0
 joblib
 sqlalchemy
 altair==4.2.2
