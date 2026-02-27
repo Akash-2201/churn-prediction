@@ -15,7 +15,7 @@ and save revenue.
 
 
 ##  Live Demo
-🔗 Coming Soon
+https://churn-prediction-a7lkppdggwizzffhfgrbaf.streamlit.app/
 
 ---
 
