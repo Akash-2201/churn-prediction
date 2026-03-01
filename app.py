@@ -92,7 +92,9 @@ st.set_page_config(
 # ── Load Model ──
 @st.cache_resource
 def load_model():
-    model = joblib.load('models/churn_model.pkl')
+    from xgboost import XGBClassifier
+    model = XGBClassifier()
+    model.load_model('models/churn_model.json')
     features = joblib.load('models/feature_names.pkl')
     return model, features
 
