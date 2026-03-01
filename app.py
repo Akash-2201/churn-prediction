@@ -333,7 +333,7 @@ RECOMMENDATIONS
             st.pyplot(fig2)
             plt.close()
         except Exception as e:
-            st.write("SHAP visualization not available:", e)
+            st.warning("SHAP visualization not available in cloud deployment.")
 
 # ════════════════════════════════
 # 📊 DASHBOARD PAGE
