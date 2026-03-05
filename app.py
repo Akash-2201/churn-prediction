@@ -146,7 +146,7 @@ elif page == "🔍 Predict Churn":
     st.title("🔍 Customer Churn Predictor")
     st.write("Fill in the customer details below and click Predict.")
     st.write("---")
-    customer_name = st.text_input("👤 Customer Name or ID", 
+    customer_name = st.text_input("👤 Customer Name or ID",
                                    placeholder="Enter customer name or ID...")
     st.write("---")
     col1, col2, col3 = st.columns(3)
@@ -346,7 +346,11 @@ elif page == "📊 Dashboard":
     st.write("---")
 
     try:
-        df = pd.read_csv('data/WA_Fn-UseC_-Telco-Customer-Churn.csv')
+        @st.cache_data
+        def load_data():
+            return pd.read_csv('data/WA_Fn-UseC_-Telco-Customer-Churn.csv')
+
+        df = load_data()
 
         col1, col2 = st.columns(2)
 
@@ -393,7 +397,7 @@ elif page == "📊 Dashboard":
 # ════════════════════════════════
 elif page == "📂 Batch Prediction":
     st.title("📂 Batch Customer Churn Prediction")
-    st.write("Upload a CSV file with multiple customers to predict churn for all at once!")
+    st.write("Upload a CSV file with multiple customers — get full analysis, charts and revenue impact!")
     st.write("---")
 
     st.write("### 📋 Required CSV Format:")
@@ -425,13 +429,19 @@ elif page == "📂 Batch Prediction":
 
     if uploaded_file is not None:
         upload_df = pd.read_csv(uploaded_file)
-        st.write(f"✅ File uploaded successfully! {len(upload_df)} customers found.")
+        st.write(f"✅ File uploaded successfully! **{len(upload_df)} customers** found.")
         st.dataframe(upload_df)
 
-        if st.button("🎯 Predict Churn for All Customers", type="primary"):
+        if st.button("🎯 Predict Churn for All Customers", type="primary", use_container_width=True):
             results = []
 
+            progress = st.progress(0)
+            status = st.empty()
+
             for idx, row in upload_df.iterrows():
+                status.text(f"Processing customer {idx+1} of {len(upload_df)}...")
+                progress.progress((idx + 1) / len(upload_df))
+
                 input_dict = {col: 0 for col in feature_names}
 
                 input_dict['tenure'] = row.get('tenure', 0)
@@ -474,7 +484,7 @@ elif page == "📂 Batch Prediction":
 
                 input_df = pd.DataFrame([input_dict])
                 prob = model.predict_proba(input_df)[0][1]
-                batch_risk = "HIGH" if prob >= 0.70 else "MEDIUM" if prob >= 0.40 else "LOW"
+                batch_risk = "HIGH" if prob >= 0.50 else "MEDIUM" if prob >= 0.30 else "LOW"
 
                 save_prediction(
                     f"Batch Customer {idx+1}",
@@ -489,44 +499,222 @@ elif page == "📂 Batch Prediction":
                     batch_risk
                 )
 
-                if prob >= 0.70:
-                    risk = "🔴 HIGH"
-                elif prob >= 0.40:
-                    risk = "🟡 MEDIUM"
+                # Recommendations
+                if batch_risk == "HIGH":
+                    recommendation = "Call immediately + Offer 20% discount"
+                elif batch_risk == "MEDIUM":
+                    recommendation = "Send retention email + Free upgrade"
                 else:
-                    risk = "🟢 LOW"
+                    recommendation = "Send thank you + Referral bonus"
 
                 results.append({
                     'Customer #': idx + 1,
-                    'Tenure': row.get('tenure', 0),
-                    'Monthly Charges': row.get('MonthlyCharges', 0),
+                    'Tenure (months)': row.get('tenure', 0),
+                    'Monthly Charges ($)': row.get('MonthlyCharges', 0),
                     'Contract': row.get('Contract', ''),
-                    'Churn Probability': f"{prob*100:.1f}%",
-                    'Risk Level': risk
+                    'Internet': row.get('InternetService', ''),
+                    'Payment': row.get('PaymentMethod', ''),
+                    'Churn Probability (%)': round(prob * 100, 1),
+                    'Risk Level': batch_risk,
+                    'Recommendation': recommendation
                 })
 
+            progress.empty()
+            status.empty()
+
             results_df = pd.DataFrame(results)
+
+            # ── SECTION 1: Summary Metrics ──
             st.write("---")
-            st.write("### 🎯 Prediction Results:")
-            st.dataframe(results_df)
+            st.write("## 📊 Prediction Summary")
+            col1, col2, col3, col4 = st.columns(4)
+            total = len(results_df)
+            high_risk = len(results_df[results_df['Risk Level'] == 'HIGH'])
+            medium_risk = len(results_df[results_df['Risk Level'] == 'MEDIUM'])
+            low_risk = len(results_df[results_df['Risk Level'] == 'LOW'])
 
-            st.write("### 📊 Summary:")
-            col1, col2, col3 = st.columns(3)
-            high_risk = len([r for r in results if "HIGH" in r['Risk Level']])
-            medium_risk = len([r for r in results if "MEDIUM" in r['Risk Level']])
-            low_risk = len([r for r in results if "LOW" in r['Risk Level']])
+            col1.metric("Total Customers", total)
+            col2.metric("🔴 High Risk", high_risk)
+            col3.metric("🟡 Medium Risk", medium_risk)
+            col4.metric("🟢 Low Risk", low_risk)
 
-            col1.metric("🔴 High Risk", high_risk)
-            col2.metric("🟡 Medium Risk", medium_risk)
-            col3.metric("🟢 Low Risk", low_risk)
-
+            # ── SECTION 2: Prediction Table ──
             st.write("---")
-            st.download_button(
-                label="📥 Download Results as CSV",
-                data=results_df.to_csv(index=False),
-                file_name="churn_predictions.csv",
-                mime="text/csv"
+            st.write("### 📋 Detailed Predictions")
+
+            risk_filter = st.selectbox(
+                "Filter by Risk Level",
+                ["All", "HIGH", "MEDIUM", "LOW"]
             )
+            if risk_filter != "All":
+                display_df = results_df[results_df['Risk Level'] == risk_filter]
+            else:
+                display_df = results_df
+
+            st.dataframe(display_df, use_container_width=True)
+
+            # ── SECTION 3: Charts ──
+            st.write("---")
+            st.write("### 📈 Visual Analysis")
+
+            col_c1, col_c2 = st.columns(2)
+
+            with col_c1:
+                st.write("#### Risk Level Distribution")
+                risk_counts = results_df['Risk Level'].value_counts()
+                labels = [str(x) for x in risk_counts.index.tolist()]
+                values = [int(x) for x in risk_counts.values.tolist()]
+                color_map = {'HIGH': '#e74c3c', 'MEDIUM': '#f39c12', 'LOW': '#2ecc71'}
+                colors_list = [color_map.get(l, '#999999') for l in labels]
+                fig_pie, ax_pie = plt.subplots(figsize=(4, 4))
+                ax_pie.pie(values, labels=labels, colors=colors_list,
+                           autopct='%1.1f%%', startangle=90)
+                ax_pie.set_title('Risk Distribution')
+                plt.tight_layout()
+                st.pyplot(fig_pie, use_container_width=False)
+                plt.close(fig_pie)
+
+            with col_c2:
+                st.write("#### Churn Probability by Contract")
+                fig_bar = px.bar(
+                    results_df,
+                    x='Customer #',
+                    y='Churn Probability (%)',
+                    color='Risk Level',
+                    color_discrete_map={
+                        'HIGH': '#e74c3c',
+                        'MEDIUM': '#f39c12',
+                        'LOW': '#2ecc71'
+                    },
+                    title="Churn Probability per Customer"
+                )
+                st.plotly_chart(fig_bar, use_container_width=True)
+
+            col_c3, col_c4 = st.columns(2)
+
+            with col_c3:
+                st.write("#### Contract Type Distribution")
+                contract_counts = results_df['Contract'].value_counts()
+                fig_contract, ax_c = plt.subplots(figsize=(4, 4))
+                ax_c.pie(
+                    contract_counts.values,
+                    labels=contract_counts.index,
+                    autopct='%1.1f%%',
+                    startangle=90,
+                    colors=['#e74c3c', '#f39c12', '#2ecc71']
+                )
+                ax_c.set_title('Contract Type Mix')
+                plt.tight_layout()
+                st.pyplot(fig_contract, use_container_width=False)
+                plt.close(fig_contract)
+
+            with col_c4:
+                st.write("#### Tenure vs Churn Probability")
+                fig_scatter = px.scatter(
+                    results_df,
+                    x='Tenure (months)',
+                    y='Churn Probability (%)',
+                    color='Risk Level',
+                    color_discrete_map={
+                        'HIGH': '#e74c3c',
+                        'MEDIUM': '#f39c12',
+                        'LOW': '#2ecc71'
+                    },
+                    title="Tenure vs Churn Probability",
+                    size='Monthly Charges ($)'
+                )
+                st.plotly_chart(fig_scatter, use_container_width=True)
+
+            # ── SECTION 4: Revenue Impact ──
+            st.write("---")
+            st.write("### 💰 Revenue Impact Analysis")
+
+            avg_monthly = results_df['Monthly Charges ($)'].mean()
+            high_risk_revenue = results_df[results_df['Risk Level'] == 'HIGH']['Monthly Charges ($)'].sum()
+            total_revenue_at_risk = high_risk_revenue * 12
+
+            col_r1, col_r2, col_r3 = st.columns(3)
+            col_r1.metric("Avg Monthly Charges", f"${avg_monthly:.2f}")
+            col_r2.metric("Monthly Revenue at Risk", f"${high_risk_revenue:,.2f}")
+            col_r3.metric("Annual Revenue at Risk", f"${total_revenue_at_risk:,.2f}")
+
+            st.write("---")
+            st.write("### 💡 ROI of Retaining High Risk Customers")
+
+            retention_cost_per_customer = 50
+            total_retention_cost = high_risk * retention_cost_per_customer
+            revenue_saved = high_risk_revenue * 12
+            net_roi = revenue_saved - total_retention_cost
+
+            col_roi1, col_roi2, col_roi3 = st.columns(3)
+            col_roi1.metric("Retention Cost", f"${total_retention_cost:,.2f}")
+            col_roi2.metric("Revenue Saved (Annual)", f"${revenue_saved:,.2f}")
+            col_roi3.metric("Net Benefit", f"${net_roi:,.2f}")
+
+            if net_roi > 0:
+                st.success(f"✅ Retaining all HIGH RISK customers saves ${net_roi:,.2f} annually!")
+            else:
+                st.warning("⚠️ Review retention strategy!")
+
+            # ── SECTION 5: Recommendations Summary ──
+            st.write("---")
+            st.write("### 💡 Action Plan")
+
+            if high_risk > 0:
+                st.error(f"🔴 **{high_risk} HIGH RISK customers** → Call immediately and offer 20% discount!")
+            if medium_risk > 0:
+                st.warning(f"🟡 **{medium_risk} MEDIUM RISK customers** → Send retention email and free upgrade!")
+            if low_risk > 0:
+                st.success(f"🟢 **{low_risk} LOW RISK customers** → Send thank you message and referral bonus!")
+
+            # ── SECTION 6: Download Options ──
+            st.write("---")
+            st.write("### 📥 Download Results")
+
+            col_d1, col_d2 = st.columns(2)
+
+            with col_d1:
+                st.download_button(
+                    label="📥 Download Predictions as CSV",
+                    data=results_df.to_csv(index=False),
+                    file_name="batch_predictions.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+
+            with col_d2:
+                batch_report = f"""
+BATCH CHURN PREDICTION REPORT
+================================
+Date: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+Total Customers: {total}
+
+SUMMARY
+================================
+High Risk   : {high_risk} customers
+Medium Risk : {medium_risk} customers
+Low Risk    : {low_risk} customers
+
+REVENUE IMPACT
+================================
+Monthly Revenue at Risk  : ${high_risk_revenue:,.2f}
+Annual Revenue at Risk   : ${total_revenue_at_risk:,.2f}
+Retention Cost           : ${total_retention_cost:,.2f}
+Net Benefit if Retained  : ${net_roi:,.2f}
+
+ACTION PLAN
+================================
+HIGH RISK   → Call immediately + 20% discount
+MEDIUM RISK → Send retention email + Free upgrade
+LOW RISK    → Thank you message + Referral bonus
+"""
+                st.download_button(
+                    label="📥 Download Full Report as TXT",
+                    data=batch_report,
+                    file_name="batch_report.txt",
+                    mime="text/plain",
+                    use_container_width=True
+                )
 
 # ════════════════════════════════
 # 🗄️ PREDICTION HISTORY PAGE
@@ -588,8 +776,6 @@ elif page == "🗄️ Prediction History":
             st.pyplot(fig_pie, use_container_width=False)
             plt.close(fig_pie)
 
-        
-
         st.write("---")
 
         st.download_button(
@@ -618,39 +804,37 @@ elif page == "💰 Churn Cost Calculator":
     with col1:
         st.write("### 📊 Enter Your Business Numbers")
         total_customers = st.number_input(
-            "Total Number of Customers", 
+            "Total Number of Customers",
             min_value=100, max_value=1000000, value=7043)
         avg_monthly_revenue = st.number_input(
-            "Average Monthly Revenue per Customer ($)", 
+            "Average Monthly Revenue per Customer ($)",
             min_value=1.0, max_value=1000.0, value=65.0)
         churn_rate = st.slider(
-            "Current Churn Rate (%)", 
+            "Current Churn Rate (%)",
             min_value=1, max_value=50, value=26)
         avg_retention_cost = st.number_input(
-            "Cost to Retain One Customer ($)", 
+            "Cost to Retain One Customer ($)",
             min_value=1.0, max_value=500.0, value=50.0)
 
     with col2:
         st.write("### 🎯 After ML Model Implementation")
         predicted_churn_reduction = st.slider(
-            "Expected Churn Reduction with ML (%)", 
+            "Expected Churn Reduction with ML (%)",
             min_value=1, max_value=50, value=20)
         model_implementation_cost = st.number_input(
-            "ML Model Implementation Cost ($)", 
+            "ML Model Implementation Cost ($)",
             min_value=0.0, max_value=100000.0, value=5000.0)
 
     st.write("---")
 
-    if st.button("💰 Calculate Revenue Impact", 
+    if st.button("💰 Calculate Revenue Impact",
                  type="primary", use_container_width=True):
 
-        # Current situation
         churned_customers = int(total_customers * churn_rate / 100)
         monthly_revenue_lost = churned_customers * avg_monthly_revenue
         annual_revenue_lost = monthly_revenue_lost * 12
         retention_cost = churned_customers * avg_retention_cost
 
-        # After ML model
         reduced_churners = int(churned_customers * predicted_churn_reduction / 100)
         saved_customers = reduced_churners
         monthly_revenue_saved = saved_customers * avg_monthly_revenue
@@ -660,7 +844,6 @@ elif page == "💰 Churn Cost Calculator":
 
         st.write("## 📊 Results")
 
-        # Current situation metrics
         st.write("### ❌ Current Situation (Without ML)")
         col_a, col_b, col_c = st.columns(3)
         col_a.metric("Customers Churning", f"{churned_customers:,}")
@@ -669,7 +852,6 @@ elif page == "💰 Churn Cost Calculator":
 
         st.write("---")
 
-        # After ML metrics
         st.write("### ✅ After ML Model Implementation")
         col_d, col_e, col_f = st.columns(3)
         col_d.metric("Customers Saved", f"{saved_customers:,}")
@@ -678,7 +860,6 @@ elif page == "💰 Churn Cost Calculator":
 
         st.write("---")
 
-        # ROI
         st.write("### 💡 Return on Investment (ROI)")
         col_g, col_h, col_i = st.columns(3)
         col_g.metric("Implementation Cost", f"${model_implementation_cost:,.2f}")
@@ -687,7 +868,6 @@ elif page == "💰 Churn Cost Calculator":
 
         st.write("---")
 
-        # Summary box
         if net_benefit > 0:
             st.success(f"""
             ✅ PROFITABLE INVESTMENT!
@@ -701,11 +881,10 @@ elif page == "💰 Churn Cost Calculator":
             st.warning(f"""
             ⚠️ Review your numbers!
             Current projection shows negative ROI.
-            Try increasing churn reduction % or 
+            Try increasing churn reduction % or
             reducing implementation cost.
             """)
 
-        # Download report
         st.write("---")
         calc_report = f"""
 CHURN COST CALCULATOR REPORT
@@ -736,4 +915,4 @@ ROI                      : {roi:.1f}%
             data=calc_report,
             file_name="churn_cost_report.txt",
             mime="text/plain"
-        )            
+        )
